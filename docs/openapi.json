@@ -1,0 +1,164 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Personal Express Starter",
+    "version": "1.0.0",
+    "description": "Unauthenticated example API with process-local storage. Items disappear on restart; the store holds at most 1000 items. Do not use for private data until authentication, ownership checks, and persistent storage are added. All application responses have X-Request-Id and Cache-Control: no-store. CORS accepts only configured origins; allowed preflight requests return 204. Express provides HEAD for GET routes. JSON bodies are limited to 16384 bytes by default and compressed bodies are rejected."
+  },
+  "servers": [{ "url": "http://127.0.0.1:3000", "description": "Default local server" }],
+  "security": [],
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "getHealth",
+        "summary": "Check that the HTTP application is responding",
+        "responses": {
+          "200": {
+            "description": "Application is responding; no internal configuration is included.",
+            "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": {
+              "schema": {
+                "type": "object", "additionalProperties": false,
+                "required": ["success", "data"],
+                "properties": {
+                  "success": { "const": true },
+                  "data": { "type": "object", "additionalProperties": false, "required": ["status"], "properties": { "status": { "const": "ok" } } }
+                }
+              },
+              "example": { "success": true, "data": { "status": "ok" } }
+            } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "413": { "$ref": "#/components/responses/PayloadTooLarge" },
+          "415": { "$ref": "#/components/responses/UnsupportedMedia" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/items": {
+      "get": {
+        "operationId": "listItems",
+        "summary": "List items in insertion order",
+        "description": "Pagination parameters accept decimal digit strings only. Repeated and unknown query parameters are rejected. Each running app has its own store.",
+        "parameters": [
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "minimum": 0, "maximum": 9007199254740991, "default": 0 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "A bounded page of items and pagination metadata.",
+            "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": {
+              "schema": { "type": "object", "additionalProperties": false, "required": ["success", "data", "meta"], "properties": {
+                "success": { "const": true },
+                "data": { "type": "array", "maxItems": 100, "items": { "$ref": "#/components/schemas/Item" } },
+                "meta": { "type": "object", "additionalProperties": false, "required": ["limit", "offset", "total"], "properties": {
+                  "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+                  "offset": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                  "total": { "type": "integer", "minimum": 0, "maximum": 1000 }
+                } }
+              } },
+              "example": { "success": true, "data": [], "meta": { "limit": 20, "offset": 0, "total": 0 } }
+            } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "413": { "$ref": "#/components/responses/PayloadTooLarge" },
+          "415": { "$ref": "#/components/responses/UnsupportedMedia" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      },
+      "post": {
+        "operationId": "createItem",
+        "summary": "Create an example item",
+        "description": "Name is trimmed before validation and storage. Unknown fields are rejected. Content-Type must be application/json; UTF-8 is recommended. Each request creates a new item; requests are not idempotent.",
+        "requestBody": { "required": true, "content": { "application/json": {
+          "schema": { "type": "object", "additionalProperties": false, "required": ["name"], "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 100, "description": "1–100 characters after trimming whitespace." } } },
+          "example": { "name": "Read a chapter" }
+        } } },
+        "responses": {
+          "201": {
+            "description": "Item created in temporary memory.",
+            "headers": {
+              "X-Request-Id": { "$ref": "#/components/headers/RequestId" },
+              "Location": { "description": "Relative path to the created item.", "schema": { "type": "string" }, "example": "/api/v1/items/f213899d-a2ca-4c2f-a5ef-4f7c4a6fb975" }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ItemResponse" }, "example": { "success": true, "data": { "id": "f213899d-a2ca-4c2f-a5ef-4f7c4a6fb975", "name": "Read a chapter", "createdAt": "2026-10-14T09:00:00.000Z" } } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "409": {
+            "description": "The 1000-item example storage cap has been reached. Restarting clears this temporary store; real projects should replace it with persistent storage.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" }, "example": { "success": false, "error": { "code": "EXAMPLE_CAPACITY_REACHED", "message": "The example store has reached its item limit." }, "requestId": "f213899d-a2ca-4c2f-a5ef-4f7c4a6fb975" } } }
+          },
+          "413": { "$ref": "#/components/responses/PayloadTooLarge" },
+          "415": { "$ref": "#/components/responses/UnsupportedMedia" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/items/{id}": {
+      "get": {
+        "operationId": "getItem",
+        "summary": "Get an item by UUID",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": {
+          "200": {
+            "description": "The item exists in this app instance.",
+            "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ItemResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "413": { "$ref": "#/components/responses/PayloadTooLarge" },
+          "415": { "$ref": "#/components/responses/UnsupportedMedia" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    }
+  },
+  "components": {
+    "headers": {
+      "RequestId": { "description": "Server-generated identifier for this request.", "schema": { "type": "string", "format": "uuid" } }
+    },
+    "schemas": {
+      "Item": {
+        "type": "object", "additionalProperties": false, "required": ["id", "name", "createdAt"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ItemResponse": { "type": "object", "additionalProperties": false, "required": ["success", "data"], "properties": { "success": { "const": true }, "data": { "$ref": "#/components/schemas/Item" } } },
+      "ErrorResponse": {
+        "type": "object", "additionalProperties": false, "required": ["success", "error", "requestId"],
+        "properties": {
+          "success": { "const": false },
+          "requestId": { "type": "string", "format": "uuid" },
+          "error": {
+            "type": "object", "additionalProperties": false, "required": ["code", "message"],
+            "properties": {
+              "code": { "type": "string", "enum": ["VALIDATION_ERROR", "INVALID_JSON", "REQUEST_ABORTED", "INVALID_BODY_SIZE", "ORIGIN_NOT_ALLOWED", "NOT_FOUND", "ITEM_NOT_FOUND", "EXAMPLE_CAPACITY_REACHED", "PAYLOAD_TOO_LARGE", "UNSUPPORTED_MEDIA_TYPE", "UNSUPPORTED_ENCODING", "UNSUPPORTED_CHARSET", "INTERNAL_ERROR"] },
+              "message": { "type": "string" },
+              "details": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["field", "message"], "properties": { "field": { "type": "string" }, "message": { "type": "string" } } } }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "VALIDATION_ERROR for invalid inputs, INVALID_JSON for malformed JSON, REQUEST_ABORTED for interrupted bodies, or INVALID_BODY_SIZE for a size mismatch. Only validation errors include details.",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" }, "example": { "success": false, "error": { "code": "VALIDATION_ERROR", "message": "Request validation failed.", "details": [{ "field": "body", "message": "Unknown fields are not allowed." }] }, "requestId": "f213899d-a2ca-4c2f-a5ef-4f7c4a6fb975" } } }
+      },
+      "Forbidden": { "description": "ORIGIN_NOT_ALLOWED: the Origin header is not in the configured allowlist.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+      "NotFound": { "description": "ITEM_NOT_FOUND for an absent item. Unknown endpoints outside this contract use NOT_FOUND.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+      "PayloadTooLarge": { "description": "PAYLOAD_TOO_LARGE: the JSON body exceeds the configured byte limit.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+      "UnsupportedMedia": { "description": "UNSUPPORTED_MEDIA_TYPE for non-JSON creation requests, UNSUPPORTED_ENCODING for compressed bodies, or UNSUPPORTED_CHARSET for unsupported JSON character sets.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } } },
+      "InternalError": { "description": "INTERNAL_ERROR: generic failure response without internal messages or stack traces.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" }, "example": { "success": false, "error": { "code": "INTERNAL_ERROR", "message": "An unexpected error occurred." }, "requestId": "f213899d-a2ca-4c2f-a5ef-4f7c4a6fb975" } } } }
+    }
+  }
+}
